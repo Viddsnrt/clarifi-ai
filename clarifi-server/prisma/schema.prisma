@@ -1,0 +1,61 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(uuid())
+  name         String
+  email        String        @unique
+  password     String
+  transactions Transaction[]
+  savings      SavingsGoal[]
+  insights     AiInsight[]
+  createdAt    DateTime      @default(now())
+}
+
+model Transaction {
+  id             String         @id @default(uuid())
+  amount         Int
+  type           TransactionType
+  category       String
+  classification Classification @default(PRIMARY)
+  note           String?
+  date           DateTime       @default(now())
+  user           User           @relation(fields: [userId], references: [id])
+  userId         String
+}
+
+model SavingsGoal {
+  id            String   @id @default(uuid())
+  goalName      String
+  targetAmount  Int
+  currentAmount Int      @default(0)
+  deadline      DateTime
+  user          User     @relation(fields: [userId], references: [id])
+  userId        String
+}
+
+model AiInsight {
+  id        String   @id @default(uuid())
+  message   String
+  type      String   // anomaly, tip, leak
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  createdAt DateTime @default(now())
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum Classification {
+  PRIMARY
+  SECONDARY
+  TERTIARY
+}
