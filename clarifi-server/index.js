@@ -1,11 +1,13 @@
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
 const { PrismaClient } = require('@prisma/client');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 require('dotenv').config();
 
 const app = express();
 const prisma = new PrismaClient();
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Inisialisasi Gemini (Pastikan API KEY ada di .env)
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -83,6 +85,270 @@ app.post('/api/transactions', async (req, res) => {
   }
 });
 
+// 3a. Endpoint Income Transactions
+app.get('/api/transactions/income', async (req, res) => {
+  try {
+    const user = await prisma.user.findFirst();
+    if (!user) return res.status(404).json({ message: "User tidak ditemukan" });
+
+    const transactions = await prisma.transaction.findMany({
+      where: { 
+        userId: user.id,
+        type: 'INCOME'
+      },
+      orderBy: { date: 'desc' }
+    });
+    res.json(transactions);
+  } catch (error) {
+    console.error("Gagal ambil data pemasukan:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/transactions/income', async (req, res) => {
+  const { amount, category, note } = req.body;
+  try {
+    const user = await prisma.user.findFirst();
+    if (!user) return res.status(404).json({ message: "User tidak ditemukan" });
+
+    if (!amount || !category) {
+      return res.status(400).json({ message: 'Amount dan category wajib diisi' });
+    }
+
+    const newTransaction = await prisma.transaction.create({
+      data: { 
+        amount: parseInt(amount), 
+        type: 'INCOME', 
+        category, 
+        userId: user.id,
+        note: note || '',
+        classification: 'PRIMARY'
+      }
+    });
+    res.status(201).json({
+      message: 'Pemasukan berhasil ditambahkan',
+      data: newTransaction
+    });
+  } catch (error) {
+    console.error("Gagal simpan pemasukan:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 3b. Endpoint Expense Transactions
+app.get('/api/transactions/expense', async (req, res) => {
+  try {
+    const user = await prisma.user.findFirst();
+    if (!user) return res.status(404).json({ message: "User tidak ditemukan" });
+
+    const transactions = await prisma.transaction.findMany({
+      where: { 
+        userId: user.id,
+        type: 'EXPENSE'
+      },
+      orderBy: { date: 'desc' }
+    });
+    res.json(transactions);
+  } catch (error) {
+    console.error("Gagal ambil data pengeluaran:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/transactions/expense', async (req, res) => {
+  const { amount, category, note, classification } = req.body;
+  try {
+    const user = await prisma.user.findFirst();
+    if (!user) return res.status(404).json({ message: "User tidak ditemukan" });
+
+    if (!amount || !category) {
+      return res.status(400).json({ message: 'Amount dan category wajib diisi' });
+    }
+
+    const newTransaction = await prisma.transaction.create({
+      data: { 
+        amount: parseInt(amount), 
+        type: 'EXPENSE', 
+        category, 
+        userId: user.id,
+        note: note || '',
+        classification: classification || 'Sekunder'
+      }
+    });
+    res.status(201).json({
+      message: 'Pengeluaran berhasil ditambahkan',
+      data: newTransaction
+    });
+  } catch (error) {
+    console.error("Gagal simpan pengeluaran:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/transactions/expense/detect', upload.single('image'), async (req, res) => {
+  try {
+    const { note } = req.body;
+    if (!req.file) {
+      return res.status(400).json({ error: 'Gambar tidak ditemukan. Upload ulang gambar.' });
+    }
+
+    const user = await prisma.user.findFirst();
+    if (!user) {
+      return res.status(404).json({ message: 'User tidak ditemukan' });
+    }
+
+    const imageBase64 = req.file.buffer.toString('base64');
+    const visionApiKey = process.env.GOOGLE_VISION_API_KEY;
+
+    const extractAmountFromText = (text = '') => {
+      const normalized = text.replace(/\./g, '').replace(/,/g, '').replace(/Rp|rp|IDR|idr/g, '').replace(/\s+/g, ' ');
+      const amountMatch = normalized.match(/(\d{3,})/g);
+      if (amountMatch) {
+        return parseInt(amountMatch[amountMatch.length - 1], 10);
+      }
+      return 0;
+    };
+
+    const extractCategoryFromText = (text = '') => {
+      const lower = text.toLowerCase();
+      if (/makan|resto|warteg|kuliner|snack|minum|kopi|coffee|jajan/.test(lower)) return 'Makan & Minum';
+      if (/transport|ojek|grab|gojek|taksi|bus|kereta|tol|bbm|solar|pertamax/.test(lower)) return 'Transportasi';
+      if (/buku|alat tulis|stationery|pensil|pulpen|skripsi|kuliah|kelas/.test(lower)) return 'Alat & Kuliah';
+      if (/pakaian|sepatu|fashion|baju|jaket|celana|kaos/.test(lower)) return 'Pakaian';
+      if (/elektronik|charger|hp|laptop|gadget|headset|earphone|speaker/.test(lower)) return 'Elektronik';
+      if (/snack|jajan|camilan|makanan ringan/.test(lower)) return 'Snack';
+      return 'Lainnya';
+    };
+
+    const classifyCategory = (category = 'Lainnya') => {
+      if (category === 'Makan & Minum' || category === 'Transportasi' || category === 'Snack') return 'Sekunder';
+      if (category === 'Alat & Kuliah') return 'Primer';
+      if (category === 'Pakaian' || category === 'Elektronik') return 'Tersier';
+      return 'Sekunder';
+    };
+
+    let ocrText = null;
+    if (visionApiKey) {
+      const visionResponse = await fetch(
+        `https://vision.googleapis.com/v1/images:annotate?key=${visionApiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            requests: [
+              {
+                image: {
+                  content: imageBase64,
+                },
+                features: [
+                  {
+                    type: 'TEXT_DETECTION',
+                    maxResults: 5,
+                  },
+                ],
+              },
+            ],
+          }),
+        }
+      );
+
+      if (!visionResponse.ok) {
+        const errorBody = await visionResponse.text();
+        console.warn(`Vision API warning: ${visionResponse.status} ${errorBody}`);
+      } else {
+        const visionData = await visionResponse.json();
+        ocrText = visionData?.responses?.[0]?.fullTextAnnotation?.text || visionData?.responses?.[0]?.textAnnotations?.[0]?.description;
+      }
+    }
+
+    const fallbackDetected = {
+      itemName: 'Pengeluaran Tidak Diketahui',
+      category: 'Lainnya',
+      classification: 'Sekunder',
+      amount: 0,
+      note: note || 'Hasil deteksi AI dari gambar',
+      confidence: 'low',
+    };
+
+    if (!ocrText) {
+      console.warn('OCR tidak tersedia, pakai fallback sederhana berdasarkan nama file.');
+    }
+
+    let detected = { ...fallbackDetected };
+    let raw = null;
+
+    const modelPrompt = `
+Analisis teks berikut dari hasil OCR struk atau foto bukti belanja.
+Tentukan:
+1. Nama barang atau layanan paling relevan
+2. Kategori pengeluaran (Makan & Minum, Transportasi, Alat & Kuliah, Snack, Pakaian, Elektronik, Lainnya)
+3. Jenis pengeluaran (Primer, Sekunder, Tersier, Jajanan, Transport)
+4. Perkiraan harga dalam rupiah
+
+Jawab dengan JSON saja, tanpa teks tambahan, tanpa markdown, dengan format:
+{
+  "itemName": "...",
+  "category": "...",
+  "classification": "...",
+  "amount": 25000,
+  "confidence": "high|medium|low",
+  "description": "..."
+}
+
+Teks OCR:
+${ocrText || 'TIDAK ADA OCR'}
+`;
+
+    try {
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+      const result = await model.generateContent(modelPrompt);
+      const response = await result.response;
+      raw = response.text();
+
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        detected = {
+          itemName: parsed.itemName || fallbackDetected.itemName,
+          category: parsed.category || fallbackDetected.category,
+          classification: parsed.classification || fallbackDetected.classification,
+          amount: parseInt(parsed.amount, 10) || fallbackDetected.amount,
+          note: note || `AI Deteksi (${parsed.confidence || 'low'}): ${parsed.description || ''}`,
+          confidence: parsed.confidence || fallbackDetected.confidence,
+        };
+      }
+    } catch (aiError) {
+      console.warn('Gemini AI gagal atau kuota habis, menggunakan fallback heuristik:', aiError.message);
+      raw = aiError.message;
+      const textSource = ocrText || req.file.originalname;
+      const category = extractCategoryFromText(textSource);
+      detected = {
+        itemName: category === 'Lainnya' ? fallbackDetected.itemName : textSource.split(/[\n\.]/)[0].slice(0, 40),
+        category,
+        classification: classifyCategory(category),
+        amount: extractAmountFromText(textSource),
+        note: note || `Fallback deteksi dari OCR: ${textSource?.slice(0, 120)}`,
+        confidence: 'low',
+      };
+    }
+
+    return res.json({
+      detected,
+      message: 'Deteksi pengeluaran berhasil',
+      ocrText,
+      raw,
+    });
+  } catch (error) {
+    console.error('Gagal deteksi pengeluaran:', error);
+    res.status(500).json({
+      error: 'Gagal memproses deteksi AI',
+      details: error.message,
+    });
+  }
+});
+
 // 4. Endpoint Savings Goals (Budgeting)
 app.get('/api/goals', async (req, res) => {
   try {
@@ -136,7 +402,7 @@ app.post('/api/ai/chat', async (req, res) => {
       `- ${t.type === 'INCOME' ? 'Pemasukan' : 'Pengeluaran'}: Rp${t.amount.toLocaleString('id-ID')} (${t.category})`
     ).join("\n");
 
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
     
     const prompt = `
       Kamu adalah ClariFi AI, asisten keuangan pribadi mahasiswa Indonesia. 

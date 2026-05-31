@@ -38,7 +38,7 @@ function App() {
               {/* Menu Navigasi */}
               <div className="hidden md:flex items-center gap-1">
                 <NavItem to="/" icon={<LayoutDashboard size={18} />} label="Dashboard" />
-                <NavItem to="/transactions" icon={<ReceiptText size={18} />} label="Transaksi" />
+                <NavItem to="/transactions" icon={<ReceiptText size={18} />} label="Pemasukan" />
                 <NavItem to="/budgets" icon={<Target size={18} />} label="Budgeting" />
                 <NavItem to="/reports" icon={<FileBarChart size={18} />} label="Laporan" />
                 
