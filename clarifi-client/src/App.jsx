@@ -15,6 +15,7 @@ import GuestHome from './pages/guest/GuestHome';
 import Layanan from './pages/guest/Layanan';
 import About from './pages/guest/About';
 import Login from './pages/guest/Login';
+import Register from './pages/guest/Register';
 
 // 🔥 FEATURE DETAIL PAGE (BARU)
 import FeatureDetail from './pages/guest/Features';
@@ -51,6 +52,7 @@ function App() {
                 <Route path="/layanan" element={<Layanan />} />
                 <Route path="/about" element={<About />} />
                 <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
 
                 {/* FEATURE DETAIL (IMPORTANT) */}
                 <Route path="/features/:slug" element={<FeatureDetail />} />

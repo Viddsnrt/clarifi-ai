@@ -1,202 +1,202 @@
-import React, { useEffect, useState, useRef } from 'react'; // Tambah useRef
+import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-import { AlertTriangle, Download, Zap, Share2, Loader2 } from 'lucide-react';
+import { AlertTriangle, Download, Zap, Share2, Loader2, CheckCircle, X, AlertCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
 const Reports = () => {
+  const userData = JSON.parse(localStorage.getItem('clarifi_user') || '{}');
+  const userId = userData?.id;
+
   const [reportData, setReportData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
-  const reportRef = useRef(null); // Ref untuk area yang akan dicetak
+  const [toast, setToast] = useState({ show: false, msg: '', type: 'success' });
+  const reportRef = useRef(null);
+
+  const showNotification = (msg, type = 'success') => {
+    setToast({ show: true, msg, type });
+    setTimeout(() => setToast(prev => ({ ...prev, show: false })), 4000);
+  };
 
   useEffect(() => {
-    axios.get('http://localhost:5000/api/reports/summary')
-      .then(res => {
-        setReportData(res.data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error("Gagal ambil laporan:", err);
-        setLoading(false);
-      });
-  }, []);
-
- const handleExportPDF = async () => {
-    if (!reportRef.current) return;
-    setIsExporting(true);
-    
-    try {
-      const element = reportRef.current;
-      
-      // Pengaturan html2canvas yang lebih stabil
-      const canvas = await html2canvas(element, { 
-        scale: 2, 
-        useCORS: true, 
-        logging: false,
-        backgroundColor: "#f8fafc", // Warna bg solid agar tidak error
-        removeContainer: true,
-      });
-      
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      
-      // Kalkulasi agar gambar pas di A4
-      const imgProps = pdf.getImageProperties(imgData);
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-      
-      pdf.addImage(imgData, 'PNG', 0, 10, pdfWidth, pdfHeight);
-      pdf.save(`Laporan_ClariFi.pdf`);
-    } catch (error) {
-      // Menampilkan error asli di console untuk debug
-      console.error("Detail Error PDF:", error);
-      alert("Terjadi kesalahan teknis saat membuat PDF. Pastikan browser mendukung.");
-    } finally {
-      setIsExporting(false);
+    if (userId) {
+      axios.get(`http://localhost:5000/api/reports/summary?userId=${userId}`)
+        .then(res => {
+          setReportData(res.data);
+          setLoading(false);
+        })
+        .catch(() => {
+          showNotification("Gagal memuat data", "error");
+          setLoading(false);
+        });
     }
-  };
+  }, [userId]);
 
-  const handleSharePoster = async () => {
+  // --- LOGIKA EXPORT PRO (STABIL) ---
+  const handleExport = async (mode) => {
     if (!reportRef.current) return;
     setIsExporting(true);
-    
+
     try {
-      const canvas = await html2canvas(reportRef.current, { 
-        scale: 2, 
+      // 1. Simpan posisi scroll saat ini
+      const scrollY = window.scrollY;
+      
+      // 2. Paksa scroll ke atas (html2canvas butuh posisi 0,0 agar tidak offset)
+      window.scrollTo(0, 0);
+
+      // 3. Beri waktu sejenak agar browser stabil
+      await new Promise(r => setTimeout(resolve, 500));
+
+      const canvas = await html2canvas(reportRef.current, {
+        scale: 2, // Resolusi cukup di 2 agar tidak crash memori
         useCORS: true,
-        backgroundColor: "#f8fafc"
+        allowTaint: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        // Pastikan menangkap seluruh lebar/tinggi elemen
+        width: reportRef.current.offsetWidth,
+        height: reportRef.current.offsetHeight,
       });
-      
-      const dataUrl = canvas.toDataURL('image/png');
-      const link = document.createElement('a');
-      link.download = `ClariFi_Poster.png`;
-      link.href = dataUrl;
-      link.click();
-    } catch (error) {
-      console.error("Detail Error Poster:", error);
+
+      // 4. Kembalikan posisi scroll user
+      window.scrollTo(0, scrollY);
+
+      if (mode === 'pdf') {
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.save(`ClariFi_Report_${userData.name}.pdf`);
+        showNotification("PDF berhasil diunduh");
+      } else {
+        const link = document.createElement('a');
+        link.download = `ClariFi_Poster.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        showNotification("Poster berhasil disimpan");
+      }
+    } catch (err) {
+      console.error("Export Error:", err);
+      showNotification("Kesalahan sistem cetak", "error");
     } finally {
       setIsExporting(false);
     }
   };
 
-  if (loading) return <div className="p-10 text-center animate-pulse font-bold text-slate-400 text-xl font-mono uppercase tracking-tighter">Menganalisis Kebocoran Kas...</div>;
+  if (!userId) return <div className="p-20 text-center font-black opacity-20 tracking-[0.5em]">AUTH REQUIRED</div>;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 page-transition pb-20">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-6xl mx-auto space-y-10 pb-20 relative px-4">
       
-      {/* HEADER - Tidak ikut di-export agar rapi */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+      {/* ELITE TOAST */}
+      <AnimatePresence mode="wait">
+        {toast.show && (
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, scale: 0.9 }} 
+            className={`fixed top-24 right-4 md:right-10 z-[100] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border bg-white ${toast.type === 'success' ? 'border-emerald-100 text-emerald-600' : 'border-rose-100 text-rose-600'}`}
+          >
+            {toast.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+            <p className="font-black text-[10px] uppercase tracking-widest">{toast.msg}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* HEADER */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
-          <h2 className="text-3xl font-black text-slate-800 tracking-tight uppercase italic">Laporan Finansial</h2>
-          <p className="text-slate-500 font-medium">Data jujur untuk masa depan yang lebih terencana.</p>
+          <h2 className="text-4xl md:text-5xl font-black text-slate-800 tracking-tighter uppercase italic">Laporan <span className="text-emerald-500">Analitik.</span></h2>
+          <p className="text-slate-400 font-medium mt-2 italic">Authorized data for: {userData.name}</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 w-full md:w-auto">
             <button 
-              onClick={handleExportPDF}
-              disabled={isExporting}
-              className="flex items-center gap-2 bg-white border border-slate-200 px-5 py-3 rounded-2xl text-sm font-black text-slate-600 hover:bg-slate-50 transition shadow-sm disabled:opacity-50"
+              onClick={() => handleExport('pdf')}
+              disabled={isExporting || loading}
+              className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white border-2 border-slate-900 px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all disabled:opacity-50 shadow-sm"
             >
-                {isExporting ? <Loader2 className="animate-spin" size={18} /> : <Download size={18} />} 
-                Export PDF
+                {isExporting ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />} PDF
             </button>
             <button 
-              onClick={handleSharePoster}
-              disabled={isExporting}
-              className="flex items-center gap-2 bg-slate-900 text-white px-5 py-3 rounded-2xl text-sm font-black hover:bg-emerald-600 transition shadow-xl shadow-slate-200 disabled:opacity-50"
+              onClick={() => handleExport('poster')}
+              disabled={isExporting || loading}
+              className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-xl disabled:opacity-50"
             >
-                {isExporting ? <Loader2 className="animate-spin" size={18} /> : <Share2 size={18} />} 
-                Share Poster
+                {isExporting ? <Loader2 className="animate-spin" size={16} /> : <Share2 size={16} />} POSTER
             </button>
         </div>
       </div>
 
-      {/* AREA YANG DI-EXPORT (MENGGUNAKAN REF) */}
-      <div ref={reportRef} className="p-4 rounded-[3rem]">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      {/* AREA CAPTURE (Gunakan warna background solid) */}
+      <div ref={reportRef} className="bg-white p-6 md:p-12 rounded-[3rem] border border-slate-100 shadow-sm">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
             
-            {/* DONUT CHART */}
-            <div className="lg:col-span-2 bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-sm min-h-[450px]">
+            <div className="lg:col-span-2 bg-slate-50 p-10 rounded-[3rem] border border-slate-100 min-h-[500px]">
               <div className="flex justify-between items-center mb-10">
-                  <h3 className="text-xl font-black text-slate-800 flex items-center gap-3 uppercase tracking-tighter">
-                    <Zap className="text-emerald-500" size={24} strokeWidth={3} /> Alokasi Dana
-                  </h3>
+                  <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter italic">Distribution.</h3>
                   <div className="text-right">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Pengeluaran</p>
-                      <p className="text-xl font-black text-slate-800 italic">Rp {reportData?.totalExpense?.toLocaleString()}</p>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Expenses</p>
+                      <p className="text-3xl font-black text-slate-900 italic tracking-tighter">Rp {reportData?.totalExpense?.toLocaleString('id-ID')}</p>
                   </div>
               </div>
 
-              <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={reportData?.chartData || []}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={70}
-                      outerRadius={110}
-                      paddingAngle={10}
-                      dataKey="value"
-                      stroke="none"
-                    >
-                      {(reportData?.chartData || []).map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                       contentStyle={{ borderRadius: '24px', border: 'none', boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.25)', fontWeight: 'bold' }}
-                    />
-                    <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                  </PieChart>
-                </ResponsiveContainer>
+              <div className="h-[350px] w-full">
+                {!loading && (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                            <Pie
+                                data={reportData?.chartData || []}
+                                cx="50%" cy="50%" innerRadius={80} outerRadius={120} paddingAngle={8}
+                                dataKey="value" stroke="none" animationBegin={0}
+                            >
+                                {(reportData?.chartData || []).map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                            </Pie>
+                            <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', fontWeight: 'bold' }} />
+                        </PieChart>
+                    </ResponsiveContainer>
+                )}
               </div>
             </div>
 
-            {/* AI SIDEBAR */}
-            <div className="space-y-6">
-              <div className="bg-gradient-to-br from-rose-500 to-rose-600 p-8 rounded-[2.5rem] text-white shadow-2xl shadow-rose-100 relative overflow-hidden">
-                <div className="relative z-10">
-                    <div className="flex items-center gap-2 mb-6">
-                        <AlertTriangle size={20} fill="white" className="text-rose-600" />
-                        <h3 className="text-lg font-black tracking-tight uppercase">Leak Detector</h3>
-                    </div>
-                    
-                    <div className="space-y-4">
-                        {(reportData?.leaks || []).map((leak, idx) => (
-                           // SESUDAH (Warna solid transparan, aman diproses):
-<div className="bg-rose-400/30 p-4 rounded-3xl flex justify-between items-center border border-white/20">
-                                <div>
-                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-60 mb-1">{leak.note || 'Transaksi'}</p>
-                                    <p className="font-black text-lg italic">Rp {leak.amount?.toLocaleString()}</p>
-                                </div>
-                                <div className="h-2 w-2 bg-white rounded-full animate-pulse" />
+            <div className="space-y-8">
+              <div className="bg-slate-900 p-10 rounded-[3rem] text-white shadow-2xl">
+                <div className="flex items-center gap-2 mb-8">
+                    <AlertTriangle size={18} className="text-rose-500" />
+                    <h3 className="text-lg font-black tracking-tight uppercase italic text-emerald-400">Leak Radar</h3>
+                </div>
+                
+                <div className="space-y-4">
+                    {(reportData?.leaks || []).length > 0 ? reportData.leaks.map((leak, idx) => (
+                        <div key={idx} className="bg-white/5 border border-white/10 p-5 rounded-2xl flex justify-between items-center">
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-1">{leak.category || 'Data'}</p>
+                                <p className="font-black text-lg italic tracking-tighter">Rp {leak.amount?.toLocaleString('id-ID')}</p>
                             </div>
-                        ))}
-                    </div>
-
-                    <div className="mt-8 pt-6 border-t border-white/20">
-                       <p className="text-[10px] font-bold text-rose-100 leading-relaxed uppercase tracking-tighter">
-                         AI menganalisis ini sebagai kebocoran dana pasif yang bisa dihemat.
-                       </p>
-                    </div>
+                            <div className="h-2 w-2 bg-rose-500 rounded-full animate-pulse shadow-[0_0_8px_#f43f5e]" />
+                        </div>
+                    )) : (
+                        <p className="py-10 text-center text-xs font-black uppercase opacity-20 tracking-widest italic">Cleared</p>
+                    )}
                 </div>
               </div>
 
-              <div className="bg-slate-900 p-8 rounded-[2.5rem] text-white shadow-xl group">
-                 <h3 className="font-black text-sm mb-3 text-emerald-400 tracking-[0.3em] uppercase">Rekomendasi</h3>
-                 <p className="text-slate-300 text-sm leading-relaxed font-medium font-serif italic">
-                    "Kurangi pengeluaran di kategori Tersier sebesar 15% untuk mempercepat target tabunganmu hingga 2 bulan."
+              <div className="bg-emerald-500 p-10 rounded-[3rem] text-slate-900 shadow-xl">
+                 <h3 className="font-black text-[10px] mb-4 text-emerald-900 tracking-[0.3em] uppercase">Recommendation</h3>
+                 <p className="text-emerald-950 text-sm leading-relaxed font-black italic">
+                    "Kurangi pengeluaran hiburan sebesar 10% untuk mengamankan tabungan masa depanmu."
                  </p>
               </div>
             </div>
-
           </div>
       </div>
-    </div>
+
+      <p className="text-center font-black text-slate-300 text-[8px] uppercase tracking-[1em] opacity-30">ClariFi Systems Intelligence</p>
+    </motion.div>
   );
 };
 

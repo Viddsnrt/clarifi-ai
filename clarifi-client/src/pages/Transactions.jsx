@@ -1,591 +1,468 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
-
+import { motion, AnimatePresence } from 'framer-motion';
 import {
-  PlusCircle,
-  Receipt,
-  ArrowUpCircle,
-  TrendingUp,
-  Wallet,
-  PiggyBank,
-  Sparkles,
+  TrendingUp, TrendingDown, Wallet, Sparkles,
+  Camera, X, CheckCircle, AlertCircle, Loader2,
+  History, Bot, Image as ImageIcon, Plus, ChevronRight,
+  ScanLine, Receipt, ArrowUpRight, ArrowDownLeft
 } from 'lucide-react';
 
-const classificationOptions = [
-  'Primer',
-  'Sekunder',
-  'Tersier',
-  'Jajanan',
-  'Transport',
-  'Lainnya',
-];
+const classificationOptions = ['Primer', 'Sekunder', 'Tersier', 'Jajanan', 'Transport', 'Lainnya'];
 
+const formatRibuan = (val) => {
+  if (!val) return '';
+  const num = val.toString().replace(/[^0-9]/g, '');
+  return num.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+};
+
+const parseAngka = (val) => parseInt(val.toString().replace(/\./g, '') || '0', 10);
+
+// ─── TOAST ────────────────────────────────────────────────────────────────────
+const Toast = ({ toast }) => (
+  <AnimatePresence>
+    {toast.show && (
+      <motion.div
+        initial={{ y: -60, opacity: 0, scale: 0.95 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: -20, opacity: 0, scale: 0.95 }}
+        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+        className={`fixed top-6 right-6 z-[200] flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl border text-sm font-semibold backdrop-blur-sm
+          ${toast.type === 'success'
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+            : 'bg-red-50 border-red-200 text-red-700'}`}
+      >
+        {toast.type === 'success'
+          ? <CheckCircle size={18} className="shrink-0" />
+          : <AlertCircle size={18} className="shrink-0" />}
+        {toast.msg}
+      </motion.div>
+    )}
+  </AnimatePresence>
+);
+
+// ─── STAT CARD ────────────────────────────────────────────────────────────────
+const StatCard = ({ label, value, icon: Icon, color }) => {
+  const palette = {
+    emerald: { bg: 'bg-emerald-500', text: 'text-emerald-600', light: 'bg-emerald-50', border: 'border-emerald-100' },
+    rose: { bg: 'bg-rose-500', text: 'text-rose-600', light: 'bg-rose-50', border: 'border-rose-100' },
+    violet: { bg: 'bg-violet-500', text: 'text-violet-600', light: 'bg-violet-50', border: 'border-violet-100' },
+  };
+  const p = palette[color] || palette.emerald;
+  return (
+    <div className={`rounded-2xl p-5 border ${p.light} ${p.border} flex items-center gap-4`}>
+      <div className={`w-11 h-11 rounded-xl ${p.bg} flex items-center justify-center shrink-0`}>
+        <Icon size={20} className="text-white" />
+      </div>
+      <div>
+        <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{label}</p>
+        <p className={`text-xl font-bold ${p.text} tracking-tight mt-0.5`}>{value}</p>
+      </div>
+    </div>
+  );
+};
+
+// ─── INPUT FIELD ──────────────────────────────────────────────────────────────
+const Field = ({ label, value, onChange, placeholder = '0', prefix }) => (
+  <div className="space-y-1.5">
+    <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider pl-1">{label}</label>
+    <div className="relative flex items-center">
+      {prefix && (
+        <span className="absolute left-4 text-sm font-bold text-slate-400 select-none">{prefix}</span>
+      )}
+      <input
+        type="text" required value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={`w-full ${prefix ? 'pl-12' : 'pl-4'} pr-4 py-3.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 rounded-xl outline-none font-semibold text-slate-800 transition-all placeholder:text-slate-300 text-sm`}
+      />
+    </div>
+  </div>
+);
+
+// ─── TRANSACTIONS PAGE ────────────────────────────────────────────────────────
 const Transactions = () => {
+  const userData = JSON.parse(localStorage.getItem('clarifi_user') || '{}');
+  const userId = userData?.id;
+
   const [activeTab, setActiveTab] = useState('income');
   const [incomeTransactions, setIncomeTransactions] = useState([]);
   const [expenseTransactions, setExpenseTransactions] = useState([]);
-  const [incomeLoading, setIncomeLoading] = useState(true);
-  const [expenseLoading, setExpenseLoading] = useState(true);
-  const [incomeForm, setIncomeForm] = useState({
-    amount: '',
-    category: '',
-    note: '',
-  });
-  const [expenseForm, setExpenseForm] = useState({
-    amount: '',
-    itemName: '',
-    classification: 'Jajanan',
-    note: '',
-  });
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [incomeForm, setIncomeForm] = useState({ amount: '', category: '' });
+  const [expenseForm, setExpenseForm] = useState({ amount: '', itemName: '', classification: 'Sekunder' });
+
   const [imageFile, setImageFile] = useState(null);
-  const [detectedExpense, setDetectedExpense] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
   const [detecting, setDetecting] = useState(false);
+  const [scanStep, setScanStep] = useState('idle'); // idle | uploading | analyzing | done | error
+  const [toast, setToast] = useState({ show: false, msg: '', type: 'success' });
+  const fileInputRef = useRef(null);
+
+  const showToast = (msg, type = 'success') => {
+    setToast({ show: true, msg, type });
+    setTimeout(() => setToast(t => ({ ...t, show: false })), 3500);
+  };
 
   useEffect(() => {
-    fetchIncomeTransactions();
-    fetchExpenseTransactions();
-  }, []);
+    if (userId) fetchAll();
+  }, [userId]);
 
-  const fetchIncomeTransactions = async () => {
-    setIncomeLoading(true);
+  const fetchAll = async () => {
+    if (!userId) return;
+    setLoading(true);
     try {
-      const res = await axios.get(
-        'http://localhost:5000/api/transactions/income'
-      );
-      setIncomeTransactions(res.data);
+      const [inc, exp] = await Promise.all([
+        axios.get(`/api/transactions/income?userId=${userId}`),
+        axios.get(`/api/transactions/expense?userId=${userId}`)
+      ]);
+      setIncomeTransactions(Array.isArray(inc.data) ? inc.data : []);
+      setExpenseTransactions(Array.isArray(exp.data) ? exp.data : []);
     } catch (err) {
-      console.error(err);
+      console.error('Fetch error:', err);
+      showToast('Gagal memuat data transaksi.', 'error');
     } finally {
-      setIncomeLoading(false);
+      setLoading(false);
     }
   };
 
-  const fetchExpenseTransactions = async () => {
-    setExpenseLoading(true);
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    const isInc = activeTab === 'income';
+    const path = isInc ? 'income' : 'expense';
+    const payload = isInc
+      ? { amount: parseAngka(incomeForm.amount), category: incomeForm.category, userId }
+      : { amount: parseAngka(expenseForm.amount), category: expenseForm.itemName, classification: expenseForm.classification, userId };
+
     try {
-      const res = await axios.get(
-        'http://localhost:5000/api/transactions/expense'
-      );
-      setExpenseTransactions(res.data);
-    } catch (err) {
-      console.error(err);
+      await axios.post(`/api/transactions/${path}`, payload);
+      showToast(isInc ? 'Pemasukan berhasil dicatat!' : 'Pengeluaran berhasil dicatat!');
+      setIncomeForm({ amount: '', category: '' });
+      setExpenseForm({ amount: '', itemName: '', classification: 'Sekunder' });
+      clearImage();
+      fetchAll();
+    } catch {
+      showToast('Gagal menyimpan. Periksa koneksi server.', 'error');
     } finally {
-      setExpenseLoading(false);
+      setSaving(false);
     }
   };
 
-  const handleSubmitIncome = async (e) => {
-    e.preventDefault();
-
-    try {
-      await axios.post('http://localhost:5000/api/transactions/income', {
-        amount: parseInt(incomeForm.amount, 10),
-        category: incomeForm.category,
-        note: incomeForm.note,
-      });
-
-      setIncomeForm({ amount: '', category: '', note: '' });
-      fetchIncomeTransactions();
-      alert('Pemasukan berhasil ditambahkan!');
-    } catch (err) {
-      console.error(err);
-      alert('Gagal menambahkan pemasukan');
-    }
+  const clearImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    setScanStep('idle');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleSubmitExpense = async (e) => {
-    e.preventDefault();
-
-    try {
-      await axios.post('http://localhost:5000/api/transactions/expense', {
-        amount: parseInt(expenseForm.amount, 10),
-        category: expenseForm.itemName || 'Pengeluaran',
-        note: expenseForm.note,
-        classification: expenseForm.classification,
-      });
-
-      setExpenseForm({ amount: '', itemName: '', classification: 'Jajanan', note: '' });
-      setImageFile(null);
-      setDetectedExpense(null);
-      fetchExpenseTransactions();
-      alert('Pengeluaran berhasil ditambahkan!');
-    } catch (err) {
-      console.error(err);
-      alert('Gagal menambahkan pengeluaran');
-    }
-  };
-
-  const handleImageChange = (event) => {
-    setImageFile(event.target.files?.[0] || null);
-    setDetectedExpense(null);
-  };
-
-  const handleDetectExpenseImage = async () => {
-    if (!imageFile) {
-      alert('Silakan pilih gambar pengeluaran dulu.');
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('File harus berupa gambar (JPG, PNG, dll)', 'error');
       return;
     }
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('Ukuran gambar maksimal 10MB', 'error');
+      return;
+    }
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+    setScanStep('ready');
+  };
+
+  const handleDetectAI = async () => {
+    if (!imageFile) {
+      showToast('Pilih foto struk terlebih dahulu!', 'error');
+      return;
+    }
+    if (detecting) return;
 
     setDetecting(true);
-    try {
-      const formData = new FormData();
-      formData.append('image', imageFile);
-      const res = await axios.post(
-        'http://localhost:5000/api/transactions/expense/detect',
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        }
-      );
+    setScanStep('analyzing');
 
-      if (res.data.detected) {
-        setDetectedExpense(res.data.detected);
-        setExpenseForm((prev) => ({
-          ...prev,
-          amount: res.data.detected.amount.toString(),
-          itemName: res.data.detected.itemName,
-          classification: res.data.detected.classification,
-          note: res.data.detected.note,
-        }));
-      }
+    const fd = new FormData();
+    fd.append('image', imageFile);
+
+    try {
+      const res = await axios.post('/api/transactions/expense/detect', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 30000,
+      });
+
+      const detected = res.data?.detected;
+      if (!detected) throw new Error('Respons AI tidak valid');
+
+      setExpenseForm({
+        amount: formatRibuan(detected.amount?.toString() || '0'),
+        itemName: detected.itemName || '',
+        classification: detected.classification || 'Sekunder',
+      });
+      setScanStep('done');
+      showToast('AI berhasil membaca struk!');
     } catch (err) {
-      console.error(err);
-      const errorMsg = err.response?.data?.details || err.message;
-      alert(`Gagal mendeteksi gambar: ${errorMsg}`);
+      console.error('AI detect error:', err);
+      setScanStep('error');
+      const msg = err.code === 'ECONNABORTED'
+        ? 'Timeout — coba foto yang lebih jelas.'
+        : err.response?.status === 422
+          ? 'Struk tidak terbaca, coba foto ulang.'
+          : 'AI gagal mendeteksi struk ini.';
+      showToast(msg, 'error');
     } finally {
       setDetecting(false);
     }
   };
 
-  const totalIncome = incomeTransactions.reduce(
-    (acc, item) => acc + (item.amount || 0),
-    0
-  );
+  // ─── Derived stats ──────────────────────────────────────────────────────────
+  const totalIncome = incomeTransactions.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const totalExpense = expenseTransactions.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const balance = totalIncome - totalExpense;
 
-  const totalExpense = expenseTransactions.reduce(
-    (acc, item) => acc + (item.amount || 0),
-    0
-  );
+  const currList = activeTab === 'income' ? incomeTransactions : expenseTransactions;
 
-  const formatCurrency = (value) => {
-    return (value || 0).toLocaleString('id-ID');
-  };
+  if (!userId) return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] text-slate-400">
+      <Wallet size={48} className="mb-4 opacity-30" />
+      <p className="font-semibold text-sm tracking-wide">Silakan login terlebih dahulu</p>
+    </div>
+  );
 
   return (
-    <div className="space-y-8">
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}
+      className="max-w-7xl mx-auto px-4 pb-24 space-y-8">
 
-      <div className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-3xl p-8 text-white relative overflow-hidden">
-        <div className="absolute right-0 top-0 text-[180px] opacity-10 font-black">
-          +
-        </div>
+      <Toast toast={toast} />
 
-        <div className="relative z-10 max-w-3xl">
-          <p className="uppercase tracking-widest text-sm text-emerald-100 font-semibold mb-3">
-            Manajemen Pemasukan & Pengeluaran
-          </p>
-
-          <h1 className="text-4xl md:text-5xl font-black leading-tight">
-            Catat Pemasukan dan Pengeluaran dengan Lebih Cerdas
-          </h1>
-
-          <p className="mt-5 text-emerald-50 text-lg leading-relaxed">
-            Tambahkan pemasukan secara teratur, catat pengeluaran dengan kategori yang lebih rinci,
-            dan gunakan AI untuk mendeteksi detail dari foto struk atau bukti belanja.
-          </p>
+      {/* ── HEADER ── */}
+      <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-8 md:p-10 text-white overflow-hidden relative">
+        <div className="absolute -right-8 -top-8 w-48 h-48 bg-white/5 rounded-full" />
+        <div className="absolute right-16 bottom-0 w-24 h-24 bg-emerald-500/10 rounded-full" />
+        <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div>
+            <p className="text-xs text-slate-400 font-medium uppercase tracking-widest mb-2">Selamat datang, {userData.name}</p>
+            <h1 className="text-3xl md:text-4xl font-bold text-white leading-tight">Kelola Keuangan<br /><span className="text-emerald-400">dengan Mudah.</span></h1>
+          </div>
+          <div className="flex flex-col items-start md:items-end">
+            <p className="text-xs text-slate-400 mb-1">Saldo Bersih</p>
+            <p className={`text-3xl font-bold tracking-tight ${balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              Rp {Math.abs(balance).toLocaleString('id-ID')}
+            </p>
+            {balance < 0 && <p className="text-xs text-rose-400 mt-0.5">Pengeluaran melebihi pemasukan</p>}
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-          <div className="bg-emerald-50 w-fit p-3 rounded-2xl mb-5">
-            <Wallet className="text-emerald-600" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-800 mb-3">Total Pemasukan</h2>
-          <p className="text-3xl font-black text-slate-900">Rp {formatCurrency(totalIncome)}</p>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-          <div className="bg-red-50 w-fit p-3 rounded-2xl mb-5">
-            <TrendingUp className="text-red-600" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-800 mb-3">Total Pengeluaran</h2>
-          <p className="text-3xl font-black text-slate-900">Rp {formatCurrency(totalExpense)}</p>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-          <div className="bg-blue-50 w-fit p-3 rounded-2xl mb-5">
-            <Sparkles className="text-blue-600" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-800 mb-3">Saldo Bersih</h2>
-          <p className="text-3xl font-black text-slate-900">Rp {formatCurrency(totalIncome - totalExpense)}</p>
-        </div>
+      {/* ── STAT CARDS ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <StatCard label="Total Pemasukan" value={`Rp ${totalIncome.toLocaleString('id-ID')}`} icon={ArrowUpRight} color="emerald" />
+        <StatCard label="Total Pengeluaran" value={`Rp ${totalExpense.toLocaleString('id-ID')}`} icon={ArrowDownLeft} color="rose" />
+        <StatCard label="Total Transaksi" value={`${incomeTransactions.length + expenseTransactions.length} item`} icon={Receipt} color="violet" />
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={() => setActiveTab('income')}
-          className={`rounded-2xl px-5 py-3 font-semibold transition ${
-            activeTab === 'income'
-              ? 'bg-emerald-600 text-white'
-              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-          }`}
-        >
-          Pemasukan
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('expense')}
-          className={`rounded-2xl px-5 py-3 font-semibold transition ${
-            activeTab === 'expense'
-              ? 'bg-emerald-600 text-white'
-              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-          }`}
-        >
-          Pengeluaran
-        </button>
+      {/* ── TABS ── */}
+      <div className="flex bg-slate-100 p-1.5 rounded-2xl w-fit gap-1">
+        {[
+          { key: 'income', label: 'Pemasukan', icon: TrendingUp },
+          { key: 'expense', label: 'Pengeluaran', icon: TrendingDown },
+        ].map(({ key, label, icon: Icon }) => (
+          <button key={key} onClick={() => setActiveTab(key)}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold transition-all
+              ${activeTab === key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            <Icon size={16} />
+            {label}
+          </button>
+        ))}
       </div>
 
+      {/* ── MAIN 2-COL LAYOUT ── */}
       <div className="flex flex-col xl:flex-row gap-8">
-        <div className="w-full xl:w-1/3">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm sticky top-24">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="bg-emerald-50 p-3 rounded-2xl">
-                <PlusCircle className="text-emerald-600" />
+
+        {/* ── FORM ── */}
+        <div className="w-full xl:w-[400px] shrink-0">
+          <motion.div key={activeTab} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
+            className="bg-white border border-slate-100 rounded-3xl p-7 shadow-sm sticky top-24">
+            
+            <div className="flex items-center gap-3 mb-7">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${activeTab === 'income' ? 'bg-emerald-100' : 'bg-rose-100'}`}>
+                {activeTab === 'income'
+                  ? <TrendingUp size={18} className="text-emerald-600" />
+                  : <TrendingDown size={18} className="text-rose-600" />}
               </div>
-              <div>
-                <h2 className="text-xl font-bold text-slate-800">
-                  {activeTab === 'income' ? 'Tambah Pemasukan' : 'Tambah Pengeluaran'}
-                </h2>
-                <p className="text-sm text-slate-500">
-                  {activeTab === 'income'
-                    ? 'Catat pemasukan harianmu.'
-                    : 'Tambahkan pengeluaran dengan kategori yang jelas dan dukungan AI.'}
-                </p>
-              </div>
+              <h3 className="font-bold text-slate-800">
+                Tambah {activeTab === 'income' ? 'Pemasukan' : 'Pengeluaran'}
+              </h3>
             </div>
 
-            {activeTab === 'income' ? (
-              <form onSubmit={handleSubmitIncome} className="space-y-5">
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500">Nominal</label>
-                  <input
-                    type="number"
-                    required
-                    placeholder="Contoh: 500000"
-                    className="w-full mt-2 p-4 rounded-2xl border border-slate-200 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500"
-                    value={incomeForm.amount}
-                    onChange={(e) =>
-                      setIncomeForm({
-                        ...incomeForm,
-                        amount: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500">Kategori</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Gaji, Freelance, Bonus"
-                    className="w-full mt-2 p-4 rounded-2xl border border-slate-200 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500"
-                    value={incomeForm.category}
-                    onChange={(e) =>
-                      setIncomeForm({
-                        ...incomeForm,
-                        category: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500">Catatan</label>
-                  <textarea
-                    rows="4"
-                    placeholder="Catatan pemasukan..."
-                    className="w-full mt-2 p-4 rounded-2xl border border-slate-200 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500"
-                    value={incomeForm.note}
-                    onChange={(e) =>
-                      setIncomeForm({
-                        ...incomeForm,
-                        note: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 transition text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100"
-                >
-                  Simpan Pemasukan
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={handleSubmitExpense} className="space-y-5">
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500">Nama Barang / Pengeluaran</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Contoh: Snack, Transport, Buku"
-                    className="w-full mt-2 p-4 rounded-2xl border border-slate-200 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500"
-                    value={expenseForm.itemName}
-                    onChange={(e) =>
-                      setExpenseForm({
-                        ...expenseForm,
-                        itemName: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500">Kategori Pengeluaran</label>
-                  <select
-                    className="w-full mt-2 p-4 rounded-2xl border border-slate-200 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500"
-                    value={expenseForm.classification}
-                    onChange={(e) =>
-                      setExpenseForm({
-                        ...expenseForm,
-                        classification: e.target.value,
-                      })
-                    }
-                  >
-                    {classificationOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500">Nominal</label>
-                  <input
-                    type="number"
-                    required
-                    placeholder="Contoh: 25000"
-                    className="w-full mt-2 p-4 rounded-2xl border border-slate-200 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500"
-                    value={expenseForm.amount}
-                    onChange={(e) =>
-                      setExpenseForm({
-                        ...expenseForm,
-                        amount: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500">Catatan</label>
-                  <textarea
-                    rows="4"
-                    placeholder="Catatan pengeluaran..."
-                    className="w-full mt-2 p-4 rounded-2xl border border-slate-200 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500"
-                    value={expenseForm.note}
-                    onChange={(e) =>
-                      setExpenseForm({
-                        ...expenseForm,
-                        note: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500">Foto Struk / Bukti Pengeluaran</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="w-full mt-2"
-                    onChange={handleImageChange}
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleDetectExpenseImage}
-                  disabled={detecting}
-                  className={`w-full py-4 rounded-2xl font-bold shadow-lg transition ${
-                    detecting
-                      ? 'bg-slate-400 text-slate-600 cursor-not-allowed'
-                      : 'bg-slate-800 hover:bg-slate-900 text-white'
-                  }`}
-                >
-                  {detecting ? (
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="w-4 h-4 border-2 border-slate-300 border-t-white rounded-full animate-spin"></div>
-                      Mendeteksi dengan Gemini Vision AI...
-                    </div>
-                  ) : (
-                    '🤖 Deteksi AI dari Gambar'
-                  )}
-                </button>
-
-                {detectedExpense && (
-                  <div className="bg-slate-50 border border-slate-200 rounded-3xl p-4">
-                    <h3 className="font-bold text-slate-800 mb-3">Hasil Deteksi AI Gemini Vision</h3>
+            <form onSubmit={handleSave} className="space-y-4">
+              {activeTab === 'income' ? (
+                <>
+                  <Field label="Nominal Dana" value={incomeForm.amount}
+                    onChange={v => setIncomeForm(f => ({ ...f, amount: formatRibuan(v) }))}
+                    placeholder="0" prefix="Rp" />
+                  <Field label="Kategori / Sumber" value={incomeForm.category}
+                    onChange={v => setIncomeForm(f => ({ ...f, category: v }))}
+                    placeholder="Contoh: Freelance" />
+                </>
+              ) : (
+                <>
+                  {/* Image upload & scan zone */}
+                  <div className={`rounded-2xl border-2 border-dashed transition-all overflow-hidden
+                    ${imagePreview ? 'border-emerald-300 bg-emerald-50/30' : 'border-slate-200 bg-slate-50'}`}>
                     
-                    <div className={`mb-3 text-xs font-semibold px-3 py-1 rounded-full w-fit ${
-                      detectedExpense.confidence === 'high' 
-                        ? 'bg-emerald-100 text-emerald-700' 
-                        : detectedExpense.confidence === 'medium'
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : 'bg-orange-100 text-orange-700'
-                    }`}>
-                      Kepercayaan: {detectedExpense.confidence?.toUpperCase() || 'MEDIUM'}
-                    </div>
-
-                    <div className="space-y-2 text-sm text-slate-600 mb-4">
-                      <p><span className="font-bold text-slate-700">Barang:</span> {detectedExpense.itemName}</p>
-                      <p><span className="font-bold text-slate-700">Kategori:</span> {detectedExpense.category}</p>
-                      <p><span className="font-bold text-slate-700">Jenis Pengeluaran:</span> {detectedExpense.classification}</p>
-                      <p><span className="font-bold text-slate-700">Perkiraan Harga:</span> Rp {formatCurrency(detectedExpense.amount)}</p>
-                      {detectedExpense.note && (
-                        <p><span className="font-bold text-slate-700">Deskripsi:</span> {detectedExpense.note}</p>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExpenseForm({
-                          amount: detectedExpense.amount.toString(),
-                          itemName: detectedExpense.itemName,
-                          classification: detectedExpense.classification,
-                          note: detectedExpense.note,
-                        })
-                      }
-                      className="mt-4 w-full bg-emerald-600 hover:bg-emerald-700 transition text-white py-3 rounded-2xl font-semibold"
-                    >
-                      ✓ Gunakan Deteksi AI
-                    </button>
+                    {imagePreview ? (
+                      <div className="relative">
+                        <img src={imagePreview} alt="Struk"
+                          className="w-full h-36 object-cover" />
+                        {/* scan overlay */}
+                        {detecting && (
+                          <div className="absolute inset-0 bg-slate-900/60 flex flex-col items-center justify-center gap-2">
+                            <ScanLine size={28} className="text-emerald-400 animate-pulse" />
+                            <p className="text-xs text-white font-medium">Menganalisis struk...</p>
+                          </div>
+                        )}
+                        {scanStep === 'done' && (
+                          <div className="absolute inset-0 bg-emerald-900/40 flex items-center justify-center">
+                            <CheckCircle size={32} className="text-emerald-300" />
+                          </div>
+                        )}
+                        <button type="button" onClick={clearImage}
+                          className="absolute top-2 right-2 bg-white/90 hover:bg-white text-slate-600 p-1.5 rounded-full shadow transition-all">
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center gap-2 py-7 cursor-pointer hover:bg-slate-100 transition-all">
+                        <Camera size={24} className="text-slate-400" />
+                        <span className="text-xs font-semibold text-slate-400">Upload foto struk</span>
+                        <span className="text-[11px] text-slate-300">JPG, PNG — maks 10MB</span>
+                        <input ref={fileInputRef} type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+                      </label>
+                    )}
                   </div>
-                )}
 
-                <button
-                  type="submit"
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 transition text-white py-4 rounded-2xl font-bold shadow-lg shadow-emerald-100"
-                >
-                  Simpan Pengeluaran
-                </button>
-              </form>
-            )}
-          </div>
+                  {/* AI Scan button */}
+                  {imageFile && (
+                    <button type="button" onClick={handleDetectAI} disabled={detecting}
+                      className={`w-full flex items-center justify-center gap-2.5 py-3 rounded-xl text-sm font-semibold transition-all
+                        ${detecting
+                          ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                          : scanStep === 'done'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-slate-900 text-white hover:bg-emerald-700 active:scale-[0.98]'}`}>
+                      {detecting
+                        ? <><Loader2 size={16} className="animate-spin" /> Menganalisis...</>
+                        : scanStep === 'done'
+                          ? <><CheckCircle size={16} /> Struk Terbaca — Scan Ulang?</>
+                          : <><Bot size={16} /> Scan dengan AI Vision</>}
+                    </button>
+                  )}
+
+                  <Field label="Item / Nama Barang" value={expenseForm.itemName}
+                    onChange={v => setExpenseForm(f => ({ ...f, itemName: v }))}
+                    placeholder="Contoh: Makan Siang" />
+                  <Field label="Biaya" value={expenseForm.amount}
+                    onChange={v => setExpenseForm(f => ({ ...f, amount: formatRibuan(v) }))}
+                    placeholder="0" prefix="Rp" />
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider pl-1">Klasifikasi</label>
+                    <select
+                      className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 focus:bg-white focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 rounded-xl outline-none font-semibold text-slate-700 text-sm transition-all"
+                      value={expenseForm.classification}
+                      onChange={e => setExpenseForm(f => ({ ...f, classification: e.target.value }))}>
+                      {classificationOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              <button type="submit" disabled={saving}
+                className={`w-full flex items-center justify-center gap-2 py-4 rounded-xl font-semibold text-sm mt-2 transition-all active:scale-[0.98]
+                  ${saving
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    : activeTab === 'income'
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-100'
+                      : 'bg-rose-500 hover:bg-rose-600 text-white shadow-lg shadow-rose-100'}`}>
+                {saving
+                  ? <><Loader2 size={16} className="animate-spin" /> Menyimpan...</>
+                  : <><Plus size={16} /> Simpan Transaksi</>}
+              </button>
+            </form>
+          </motion.div>
         </div>
 
-        <div className="w-full xl:w-2/3">
-          <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-              <div className="bg-slate-100 p-3 rounded-2xl">
-                <Receipt className="text-slate-600" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-slate-800">
-                  {activeTab === 'income' ? 'Riwayat Pemasukan' : 'Riwayat Pengeluaran'}
-                </h2>
-                <p className="text-sm text-slate-500">
-                  {activeTab === 'income'
-                    ? 'Semua pemasukan yang sudah kamu catat.'
-                    : 'Daftar pengeluaran dengan kategori dan catatan.'}
-                </p>
-              </div>
+        {/* ── TRANSACTION LIST ── */}
+        <div className="flex-1 bg-white border border-slate-100 rounded-3xl overflow-hidden shadow-sm">
+          <div className="px-8 py-6 border-b border-slate-50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <History size={18} className="text-slate-300" />
+              <h2 className="font-bold text-slate-800">Riwayat Transaksi</h2>
             </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
-                  <tr>
-                    <th className="px-6 py-4 text-left font-bold">Tanggal</th>
-                    <th className="px-6 py-4 text-left font-bold">Nama / Kategori</th>
-                    <th className="px-6 py-4 text-left font-bold">Detail</th>
-                    <th className="px-6 py-4 text-left font-bold">Jumlah</th>
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-slate-100">
-                  {activeTab === 'income' ? (
-                    incomeLoading ? (
-                      <tr>
-                        <td colSpan="4" className="text-center p-10 text-slate-400">
-                          Memuat data pemasukan...
-                        </td>
-                      </tr>
-                    ) : incomeTransactions.length === 0 ? (
-                      <tr>
-                        <td colSpan="4" className="text-center p-10 text-slate-400">
-                          Belum ada pemasukan
-                        </td>
-                      </tr>
-                    ) : (
-                      incomeTransactions.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50 transition">
-                          <td className="px-6 py-5 text-sm text-slate-500">
-                            {new Date(item.date).toLocaleDateString('id-ID')}
-                          </td>
-                          <td className="px-6 py-5">
-                            <div className="flex items-center gap-3">
-                              <div className="bg-emerald-50 p-2 rounded-xl">
-                                <ArrowUpCircle className="text-emerald-600" size={18} />
-                              </div>
-                              <div>
-                                <p className="font-bold text-slate-700">{item.category}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-5 text-sm text-slate-500">{item.note || '-'}</td>
-                          <td className="px-6 py-5 text-right font-bold text-emerald-600">+ Rp {formatCurrency(item.amount)}</td>
-                        </tr>
-                      ))
-                    )
-                  ) : expenseLoading ? (
-                    <tr>
-                      <td colSpan="4" className="text-center p-10 text-slate-400">
-                        Memuat data pengeluaran...
-                      </td>
-                    </tr>
-                  ) : expenseTransactions.length === 0 ? (
-                    <tr>
-                      <td colSpan="4" className="text-center p-10 text-slate-400">
-                        Belum ada pengeluaran
-                      </td>
-                    </tr>
-                  ) : (
-                    expenseTransactions.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50 transition">
-                        <td className="px-6 py-5 text-sm text-slate-500">
-                          {new Date(item.date).toLocaleDateString('id-ID')}
-                        </td>
-                        <td className="px-6 py-5">
-                          <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-3">
-                              <div className="bg-red-50 p-2 rounded-xl">
-                                <ArrowUpCircle className="text-red-600" size={18} />
-                              </div>
-                              <p className="font-bold text-slate-700">{item.category}</p>
-                            </div>
-                            <span className="text-xs text-slate-400">{item.classification}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-5 text-sm text-slate-500">{item.note || '-'}</td>
-                        <td className="px-6 py-5 text-right font-bold text-rose-600">- Rp {formatCurrency(item.amount)}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <span className="text-xs font-medium text-slate-400 bg-slate-50 px-3 py-1 rounded-full">
+              {currList.length} data
+            </span>
           </div>
+
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-32 gap-3">
+              <Loader2 size={28} className="animate-spin text-slate-200" />
+              <p className="text-xs text-slate-300 font-medium">Memuat transaksi...</p>
+            </div>
+          ) : currList.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-32 gap-3">
+              <ImageIcon size={40} className="text-slate-100" />
+              <p className="text-sm text-slate-300 font-medium">Belum ada transaksi di sini</p>
+              <p className="text-xs text-slate-200">Tambahkan transaksi pertamamu!</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              <AnimatePresence initial={false}>
+                {currList.map((item, i) => (
+                  <motion.div key={item.id}
+                    initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.03 }}
+                    className="flex items-center gap-4 px-8 py-5 hover:bg-slate-50/60 transition-all">
+                    
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0
+                      ${activeTab === 'income' ? 'bg-emerald-50' : 'bg-rose-50'}`}>
+                      {activeTab === 'income'
+                        ? <ArrowUpRight size={18} className="text-emerald-500" />
+                        : <ArrowDownLeft size={18} className="text-rose-500" />}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-800 truncate">
+                        {item.category || 'Tanpa Deskripsi'}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs text-slate-400">
+                          {new Date(item.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </span>
+                        {item.classification && (
+                          <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
+                            {item.classification}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className={`font-bold text-base shrink-0
+                      ${activeTab === 'income' ? 'text-emerald-600' : 'text-rose-500'}`}>
+                      {activeTab === 'income' ? '+' : '−'} Rp {(Number(item.amount) || 0).toLocaleString('id-ID')}
+                    </p>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
