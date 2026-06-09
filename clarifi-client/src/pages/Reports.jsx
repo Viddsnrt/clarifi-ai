@@ -50,7 +50,7 @@ const Reports = () => {
       window.scrollTo(0, 0);
 
       // 3. Beri waktu sejenak agar browser stabil
-      await new Promise(r => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       const canvas = await html2canvas(reportRef.current, {
         scale: 2, // Resolusi cukup di 2 agar tidak crash memori
@@ -143,22 +143,26 @@ const Reports = () => {
                   </div>
               </div>
 
-              <div className="h-[350px] w-full">
-                {!loading && (
+              <div className="h-[350px] w-full min-w-0">
+                {!loading && reportData?.chartData && reportData.chartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                             <Pie
-                                data={reportData?.chartData || []}
+                                data={reportData.chartData}
                                 cx="50%" cy="50%" innerRadius={80} outerRadius={120} paddingAngle={8}
                                 dataKey="value" stroke="none" animationBegin={0}
                             >
-                                {(reportData?.chartData || []).map((entry, index) => (
+                                {reportData.chartData.map((entry, index) => (
                                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                 ))}
                             </Pie>
                             <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', fontWeight: 'bold' }} />
                         </PieChart>
                     </ResponsiveContainer>
+                ) : (
+                    <div className="flex items-center justify-center h-full text-slate-400">
+                        <p className="text-sm font-medium italic">Tidak ada data pengeluaran untuk ditampilkan</p>
+                    </div>
                 )}
               </div>
             </div>

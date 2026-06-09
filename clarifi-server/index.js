@@ -83,6 +83,43 @@ app.post('/api/transactions/expense/detect', upload.single('image'), async (req,
   }
 });
 
+// ================= AI CHAT =================
+app.post('/api/ai/chat', async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: 'Pesan diperlukan' });
+
+    // Predefined financial advice responses based on keywords
+    const responses = {
+      'menghemat|hemat|tabung|simpan': 'Mulai dengan membuat anggaran bulanan. Catat semua pengeluaran, buat target tabungan 20% dari penghasilan, dan kurangi pengeluaran tidak perlu. Setiap rupiah kecil yang disimpan akan membesar seiring waktu! 💪',
+      'cicilan|hutang|utang': 'Prioritaskan membayar hutang dengan bunga tertinggi terlebih dahulu. Buat jadwal pembayaran yang teratur dan jangan menambah hutang baru. Konsistensi adalah kunci untuk bebas utang! 🎯',
+      'investasi|saham|crypto': 'Sebelum investasi, pastikan kamu sudah punya dana darurat 3-6 bulan pengeluaran. Mulai dengan investasi jangka panjang seperti saham atau reksa dana. Jangan lupa diversifikasi portfolio-mu! 📈',
+      'uang habis|pengeluaran|boros': 'Cek kategori pengeluaran terbesar. Biasanya pengeluaran tidak terencana dan impulsif jadi penyebabnya. Gunakan fitur kategori kami untuk tracking lebih detail. Terapkan sistem 50-30-20: 50% kebutuhan, 30% keinginan, 20% investasi! 💸',
+      'gaji|income|penghasilan': 'Bagus! Maksimalkan penghasilan dengan update skill atau cari passive income. Pastikan penghasilan > pengeluaran agar bisa menabung atau investasi. Pantau tren penghasilan bulananmu di dashboard! 📊',
+      'tujuan|goal|impian': 'Tetapkan tujuan finansial yang spesifik dan terukur. Gunakan fitur Savings Goals kami untuk tracking progress. Setiap kecil langkah konsisten akan membawa kamu lebih dekat ke impian! 🌟',
+      'rencanakan|plan|strategi': 'Buat rencana finansial dengan prioritas: 1) Bayar hutang, 2) Dana darurat, 3) Investasi, 4) Keinginan. Update rencana setiap bulan sesuai situasi. Fleksibilitas adalah kunci kesuksesan! 📋',
+    };
+
+    let reply = 'Maaf, pertanyaanmu sedikit di luar keahlian aku. Tapi intinya, kelola keuangan dengan disiplin dan catat setiap transaksi. Itu kunci sukses finansial! 😊';
+    
+    const lowerMessage = message.toLowerCase();
+    for (const [keywords, response] of Object.entries(responses)) {
+      const keywordList = keywords.split('|');
+      if (keywordList.some(kw => lowerMessage.includes(kw))) {
+        reply = response;
+        break;
+      }
+    }
+
+    res.json({ reply });
+  } catch (error) {
+    console.error('AI Chat Error:', error.message);
+    res.json({ 
+      reply: "Maaf, sedang ada gangguan teknis. Coba ulangi pertanyaanmu lagi ya! 😊"
+    });
+  }
+});
+
 // ================= DASHBOARD =================
 app.get('/api/dashboard-summary', async (req, res) => {
   const { userId } = req.query;
