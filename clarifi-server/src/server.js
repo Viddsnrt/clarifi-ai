@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 
+import authRoutes from './routes/authRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import transactionRoutes from './routes/transactionRoutes.js';
 
@@ -14,6 +15,11 @@ app.use(express.json());
 // ==========================
 // ROUTES
 // ==========================
+app.use(
+  '/api/auth',
+  authRoutes
+);
+
 app.use(
   '/api',
   dashboardRoutes

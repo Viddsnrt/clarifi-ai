@@ -5,6 +5,8 @@ const router = express.Router();
 import {
   getIncomeTransactions,
   createIncomeTransaction,
+  getExpenseTransactions,
+  createExpenseTransaction,
 } from '../controllers/transactionController.js';
 
 
@@ -23,6 +25,24 @@ router.get(
 router.post(
   '/income',
   createIncomeTransaction
+);
+
+
+// =======================================
+// GET EXPENSE TRANSACTIONS
+// =======================================
+router.get(
+  '/expense',
+  getExpenseTransactions
+);
+
+
+// =======================================
+// CREATE EXPENSE TRANSACTION
+// =======================================
+router.post(
+  '/expense',
+  createExpenseTransaction
 );
 
 export default router;

@@ -115,8 +115,8 @@ const Transactions = () => {
     setLoading(true);
     try {
       const [inc, exp] = await Promise.all([
-        axios.get(`/api/transactions/income?userId=${userId}`),
-        axios.get(`/api/transactions/expense?userId=${userId}`)
+        axios.get(`http://localhost:5000/api/transactions/income?userId=${userId}`),
+        axios.get(`http://localhost:5000/api/transactions/expense?userId=${userId}`)
       ]);
       setIncomeTransactions(Array.isArray(inc.data) ? inc.data : []);
       setExpenseTransactions(Array.isArray(exp.data) ? exp.data : []);
@@ -139,7 +139,7 @@ const Transactions = () => {
       : { amount: parseAngka(expenseForm.amount), category: expenseForm.itemName, classification: expenseForm.classification, userId };
 
     try {
-      await axios.post(`/api/transactions/${path}`, payload);
+      await axios.post(`http://localhost:5000/api/transactions/${path}`, payload);
       showToast(isInc ? 'Pemasukan berhasil dicatat!' : 'Pengeluaran berhasil dicatat!');
       setIncomeForm({ amount: '', category: '' });
       setExpenseForm({ amount: '', itemName: '', classification: 'Sekunder' });
@@ -189,7 +189,7 @@ const Transactions = () => {
     fd.append('image', imageFile);
 
     try {
-      const res = await axios.post('/api/transactions/expense/detect', fd, {
+      const res = await axios.post('http://localhost:5000/api/transactions/expense/detect', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 30000,
       });
