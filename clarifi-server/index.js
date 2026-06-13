@@ -12,7 +12,9 @@ const prisma = new PrismaClient();
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const upload = multer(); // Inisialisasi multer untuk handle gambar
 
-app.use(cors());
+app.use(cors({
+  origin: 'https://clarifi-ai-production.up.railway.app' // Ganti dengan URL Vercel-mu
+}));
 app.use(express.json());
 
 const mapToPrismaEnum = (val) => {

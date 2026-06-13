@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../api'; // Import Base URL dari Railway
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -31,7 +32,8 @@ const Dashboard = () => {
 
   const fetchDashboard = async () => {
     try {
-      const res = await axios.get(`http://localhost:5000/api/dashboard-summary?userId=${userId}`);
+      // MENGGUNAKAN API_BASE_URL DARI RAILWAY
+      const res = await axios.get(`${API_BASE_URL}/api/dashboard-summary?userId=${userId}`);
       setData(prev => ({ ...prev, ...res.data }));
     } catch (error) {
       console.log("Error fetching dashboard:", error);
@@ -93,11 +95,10 @@ const Dashboard = () => {
               <span className="bg-gradient-to-r from-emerald-400 to-cyan-300 bg-clip-text text-transparent">Numbers.</span>
             </h1>
             <p className="mt-8 text-slate-400 text-lg font-medium leading-relaxed italic">
-              "Halo {userData.name.split(' ')[0]}, sistem kami telah mengamankan data finansialmu. Semua terkendali."
+              "Halo {userData.name?.split(' ')[0] || 'User'}, sistem kami telah mengamankan data finansialmu. Semua terkendali."
             </p>
           </div>
           
-          {/* Smart Spending Pulse */}
           <div className="w-full md:w-80 bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[40px] p-8 shadow-inner relative group">
              <Zap className="absolute top-6 right-8 text-emerald-400 animate-pulse" size={20} />
              <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-2">Safe to Spend Today</p>
@@ -124,8 +125,6 @@ const Dashboard = () => {
 
       {/* --- ANALYTICS HUB --- */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-10">
-        
-        {/* Main Chart Area */}
         <motion.div variants={itemVariants} className="xl:col-span-2 bg-white border border-slate-100 rounded-[48px] p-10 shadow-sm hover:shadow-xl transition-all duration-500">
           <div className="flex justify-between items-start mb-12">
             <div>
@@ -147,10 +146,7 @@ const Dashboard = () => {
                 <CartesianGrid strokeDasharray="6 6" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} />
                 <YAxis hide />
-                <Tooltip 
-                    contentStyle={{ borderRadius: '24px', border: 'none', boxShadow: '0 20px 40px -10px rgb(0 0 0 / 0.1)', fontWeight: 'bold', fontSize: '12px' }} 
-                    cursor={{ stroke: '#10B981', strokeWidth: 2 }}
-                />
+                <Tooltip contentStyle={{ borderRadius: '24px', border: 'none', boxShadow: '0 20px 40px -10px rgb(0 0 0 / 0.1)', fontWeight: 'bold', fontSize: '12px' }} />
                 <Area type="monotone" dataKey="income" stroke="#10B981" strokeWidth={5} fill="url(#premiumGrad)" animationDuration={2000} />
                 <Area type="monotone" dataKey="expense" stroke="#EF4444" strokeWidth={3} fill="transparent" strokeDasharray="8 8" />
               </AreaChart>
@@ -158,36 +154,28 @@ const Dashboard = () => {
           </div>
         </motion.div>
 
-        {/* Replacement for AI Advisor: Monthly Budget Status */}
         <motion.div variants={itemVariants} className="bg-slate-50 border border-slate-200 rounded-[48px] p-10 flex flex-col justify-between group overflow-hidden relative">
           <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-emerald-500/5 rounded-full blur-3xl group-hover:bg-emerald-500/10 transition-all" />
-          
           <div className="relative z-10">
             <h2 className="text-xl font-black text-slate-800 tracking-tighter uppercase mb-2 flex items-center gap-3">
                <Layers className="text-emerald-600" size={22} /> Budget Status
             </h2>
-            <p className="text-slate-400 text-[10px] font-black tracking-[0.2em] uppercase mb-8">Proporsi Penggunaan Dana</p>
-            
-            <div className="space-y-8">
+            <div className="space-y-8 mt-8">
                <BudgetProgress label="Primary Needs" percent={65} color="bg-emerald-500" />
                <BudgetProgress label="Secondary Wants" percent={20} color="bg-blue-500" />
                <BudgetProgress label="Tertiary/Fun" percent={15} color="bg-amber-500" />
             </div>
           </div>
-
           <div className="mt-12 p-6 bg-white rounded-3xl border border-slate-200 shadow-sm">
              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Health Score</p>
              <div className="flex items-end gap-2">
                 <span className="text-4xl font-black text-slate-800 leading-none">{data.financialHealthScore}</span>
-                <span className="text-emerald-500 font-bold text-xs mb-1 uppercase tracking-widest flex items-center gap-1">
-                   Good <ArrowUpRight size={14} />
-                </span>
+                <span className="text-emerald-500 font-bold text-xs mb-1 uppercase tracking-widest flex items-center gap-1">Good <ArrowUpRight size={14} /></span>
              </div>
           </div>
         </motion.div>
       </div>
 
-      {/* --- REPLACEMENT FOR RENCANA MASA DEPAN: CLARITY HEATMAP --- */}
       <motion.section variants={itemVariants} className="bg-white border border-slate-100 rounded-[56px] p-10 md:p-14 shadow-sm relative overflow-hidden">
         <div className="flex flex-col md:flex-row justify-between items-center mb-12 gap-4">
             <div>
@@ -196,58 +184,24 @@ const Dashboard = () => {
                 </h2>
                 <p className="text-slate-400 text-sm font-medium mt-2">Pemisahan cerdas antara kebutuhan, keinginan, dan hiburan.</p>
             </div>
-            <div className="flex bg-slate-50 p-2 rounded-2xl border border-slate-100">
-                <button className="px-6 py-2 bg-white shadow-sm rounded-xl text-xs font-black text-slate-800 uppercase tracking-widest">Real-time Data</button>
-            </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-            <MetricBox 
-                title="Kebutuhan Pokok" 
-                value={formatCurrency(data.monthlyExpense * 0.5)} 
-                desc="Batas aman: 50% dari total income." 
-                icon={<ShieldCheck size={20} />} 
-                color="text-emerald-600" 
-                bg="bg-emerald-50"
-            />
-            <MetricBox 
-                title="Gaya Hidup" 
-                value={formatCurrency(data.monthlyExpense * 0.3)} 
-                desc="Batas aman: 30% dari total income." 
-                icon={<Sparkles size={20} />} 
-                color="text-blue-600" 
-                bg="bg-blue-50"
-            />
-            <MetricBox 
-                title="Entertainment" 
-                value={formatCurrency(data.monthlyExpense * 0.2)} 
-                desc="Batas aman: 20% dari total income." 
-                icon={<Zap size={20} />} 
-                color="text-amber-600" 
-                bg="bg-amber-50"
-            />
+            <MetricBox title="Kebutuhan Pokok" value={formatCurrency(data.monthlyExpense * 0.5)} desc="Batas aman: 50% dari total income." icon={<ShieldCheck size={20} />} color="text-emerald-600" bg="bg-emerald-50" />
+            <MetricBox title="Gaya Hidup" value={formatCurrency(data.monthlyExpense * 0.3)} desc="Batas aman: 30% dari total income." icon={<Sparkles size={20} />} color="text-blue-600" bg="bg-blue-50" />
+            <MetricBox title="Entertainment" value={formatCurrency(data.monthlyExpense * 0.2)} desc="Batas aman: 20% dari total income." icon={<Zap size={20} />} color="text-amber-600" bg="bg-amber-50" />
         </div>
       </motion.section>
-
     </motion.div>
   );
 };
 
-// --- ELITE SUB COMPONENTS ---
-
+// --- SUB COMPONENTS (Tetap Sama) ---
 const StatCard = ({ title, amount, icon, color, variants }) => {
-  const styles = {
-    emerald: "bg-emerald-50 text-emerald-600",
-    blue: "bg-blue-50 text-blue-600",
-    pink: "bg-pink-50 text-pink-600",
-    rose: "bg-rose-50 text-rose-600",
-    cyan: "bg-cyan-50 text-cyan-600",
-  };
+  const styles = { emerald: "bg-emerald-50 text-emerald-600", blue: "bg-blue-50 text-blue-600", pink: "bg-pink-50 text-pink-600", rose: "bg-rose-50 text-rose-600", cyan: "bg-cyan-50 text-cyan-600" };
   return (
     <motion.div variants={variants} whileHover={{ y: -12, scale: 1.02 }} className="bg-white border border-slate-100 rounded-[38px] p-8 shadow-sm transition-all duration-300">
-      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-8 shadow-inner ${styles[color]}`}>
-        {React.cloneElement(icon, { size: 26, strokeWidth: 2.5 })}
-      </div>
+      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-8 shadow-inner ${styles[color]}`}>{React.cloneElement(icon, { size: 26, strokeWidth: 2.5 })}</div>
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{title}</p>
       <h2 className="text-2xl font-black text-slate-900 tracking-tighter italic">Rp {amount.toLocaleString('id-ID')}</h2>
     </motion.div>
@@ -261,19 +215,14 @@ const BudgetProgress = ({ label, percent, color }) => (
             <span className="text-slate-800">{percent}%</span>
         </div>
         <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-            <motion.div 
-                initial={{ width: 0 }} whileInView={{ width: `${percent}%` }}
-                className={`h-full ${color} rounded-full shadow-lg`} 
-            />
+            <motion.div initial={{ width: 0 }} whileInView={{ width: `${percent}%` }} className={`h-full ${color} rounded-full shadow-lg`} />
         </div>
     </div>
 );
 
 const MetricBox = ({ title, value, desc, icon, color, bg }) => (
     <motion.div whileHover={{ backgroundColor: '#fff' }} className="p-8 rounded-[40px] border border-slate-100 bg-slate-50/50 transition-all group">
-        <div className={`w-12 h-12 rounded-2xl ${bg} ${color} flex items-center justify-center mb-6 shadow-sm group-hover:scale-110 transition-transform`}>
-            {icon}
-        </div>
+        <div className={`w-12 h-12 rounded-2xl ${bg} ${color} flex items-center justify-center mb-6 shadow-sm group-hover:scale-110 transition-transform`}>{icon}</div>
         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">{title}</h3>
         <p className={`text-2xl font-black ${color} tracking-tighter mb-4 italic`}>Rp {value}</p>
         <p className="text-[10px] text-slate-500 font-medium leading-relaxed uppercase tracking-tighter">{desc}</p>

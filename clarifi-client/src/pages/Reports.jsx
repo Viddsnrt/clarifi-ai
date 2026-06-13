@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
+import API_BASE_URL from '../api'; // Import Base URL Railway
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { AlertTriangle, Download, Zap, Share2, Loader2, CheckCircle, X, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -25,12 +26,14 @@ const Reports = () => {
 
   useEffect(() => {
     if (userId) {
-      axios.get(`http://localhost:5000/api/reports/summary?userId=${userId}`)
+      // MENGGUNAKAN API_BASE_URL DARI RAILWAY
+      axios.get(`${API_BASE_URL}/api/reports/summary?userId=${userId}`)
         .then(res => {
           setReportData(res.data);
           setLoading(false);
         })
-        .catch(() => {
+        .catch((err) => {
+          console.error("Gagal ambil laporan:", err);
           showNotification("Gagal memuat data", "error");
           setLoading(false);
         });
@@ -43,27 +46,22 @@ const Reports = () => {
     setIsExporting(true);
 
     try {
-      // 1. Simpan posisi scroll saat ini
       const scrollY = window.scrollY;
-      
-      // 2. Paksa scroll ke atas (html2canvas butuh posisi 0,0 agar tidak offset)
       window.scrollTo(0, 0);
 
-      // 3. Beri waktu sejenak agar browser stabil
+      // Beri waktu render CSS
       await new Promise(resolve => setTimeout(resolve, 500));
 
       const canvas = await html2canvas(reportRef.current, {
-        scale: 2, // Resolusi cukup di 2 agar tidak crash memori
+        scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: "#ffffff",
         logging: false,
-        // Pastikan menangkap seluruh lebar/tinggi elemen
         width: reportRef.current.offsetWidth,
         height: reportRef.current.offsetHeight,
       });
 
-      // 4. Kembalikan posisi scroll user
       window.scrollTo(0, scrollY);
 
       if (mode === 'pdf') {
@@ -72,11 +70,11 @@ const Reports = () => {
         const pdfWidth = pdf.internal.pageSize.getWidth();
         const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
         pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-        pdf.save(`ClariFi_Report_${userData.name}.pdf`);
+        pdf.save(`ClariFi_Report_${userData.name || 'User'}.pdf`);
         showNotification("PDF berhasil diunduh");
       } else {
         const link = document.createElement('a');
-        link.download = `ClariFi_Poster.png`;
+        link.download = `ClariFi_Poster_${userData.name || 'User'}.png`;
         link.href = canvas.toDataURL('image/png');
         link.click();
         showNotification("Poster berhasil disimpan");
@@ -110,7 +108,7 @@ const Reports = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div>
           <h2 className="text-4xl md:text-5xl font-black text-slate-800 tracking-tighter uppercase italic">Laporan <span className="text-emerald-500">Analitik.</span></h2>
-          <p className="text-slate-400 font-medium mt-2 italic">Authorized data for: {userData.name}</p>
+          <p className="text-slate-400 font-medium mt-2 italic">Authorized data for: {userData.name || 'User'}</p>
         </div>
         <div className="flex gap-3 w-full md:w-auto">
             <button 
@@ -130,7 +128,7 @@ const Reports = () => {
         </div>
       </div>
 
-      {/* AREA CAPTURE (Gunakan warna background solid) */}
+      {/* AREA CAPTURE */}
       <div ref={reportRef} className="bg-white p-6 md:p-12 rounded-[3rem] border border-slate-100 shadow-sm">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
             
@@ -161,7 +159,7 @@ const Reports = () => {
                     </ResponsiveContainer>
                 ) : (
                     <div className="flex items-center justify-center h-full text-slate-400">
-                        <p className="text-sm font-medium italic">Tidak ada data pengeluaran untuk ditampilkan</p>
+                        <p className="text-sm font-medium italic">Tidak ada data pengeluaran ditemukan</p>
                     </div>
                 )}
               </div>
@@ -192,7 +190,7 @@ const Reports = () => {
               <div className="bg-emerald-500 p-10 rounded-[3rem] text-slate-900 shadow-xl">
                  <h3 className="font-black text-[10px] mb-4 text-emerald-900 tracking-[0.3em] uppercase">Recommendation</h3>
                  <p className="text-emerald-950 text-sm leading-relaxed font-black italic">
-                    "Kurangi pengeluaran hiburan sebesar 10% untuk mengamankan tabungan masa depanmu."
+                    "Analisis data menunjukkan pola pengeluaranmu stabil. Pertahankan performa ini."
                  </p>
               </div>
             </div>
